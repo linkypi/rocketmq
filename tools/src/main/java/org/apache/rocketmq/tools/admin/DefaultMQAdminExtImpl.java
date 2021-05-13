@@ -17,6 +17,8 @@
 package org.apache.rocketmq.tools.admin;
 
 import java.io.UnsupportedEncodingException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -860,7 +862,7 @@ public class DefaultMQAdminExtImpl implements MQAdminExt, MQAdminExtInner {
 
     public boolean consumed(final MessageExt msg,
         final String group) throws RemotingException, MQClientException, InterruptedException,
-        MQBrokerException {
+            MQBrokerException, UnknownHostException {
 
         ConsumeStats cstats = this.examineConsumeStats(group);
 
@@ -873,8 +875,12 @@ public class DefaultMQAdminExtImpl implements MQAdminExt, MQAdminExtInner {
             if (mq.getTopic().equals(msg.getTopic()) && mq.getQueueId() == msg.getQueueId()) {
                 BrokerData brokerData = ci.getBrokerAddrTable().get(mq.getBrokerName());
                 if (brokerData != null) {
-                    String addr = brokerData.getBrokerAddrs().get(MixAll.MASTER_ID);
-                    if (RemotingUtil.socketAddress2String(msg.getStoreHost()).equals(addr)) {
+                    final String msgStoreHost = RemotingUtil.socketAddress2String(msg.getStoreHost());
+                    final String brokerHost = getBrokerIpFromCluster(brokerData);
+                    log.debug("============= msgHostIp: {}, msg.getStoreHost(): {} =============", msgStoreHost, brokerHost);
+
+                    if (msgStoreHost.equals(brokerHost)) {
+                        log.debug("next.getValue().getConsumerOffset(): {}, msg.getQueueOffset(): {}", next.getValue().getConsumerOffset(), msg.getQueueOffset());
                         if (next.getValue().getConsumerOffset() > msg.getQueueOffset()) {
                             return true;
                         }
@@ -884,6 +890,18 @@ public class DefaultMQAdminExtImpl implements MQAdminExt, MQAdminExtInner {
         }
 
         return false;
+    }
+
+    private String getBrokerIpFromCluster(BrokerData brokerData ) throws UnknownHostException {
+        String addr = brokerData.getBrokerAddrs().get(MixAll.MASTER_ID);
+        final String[] arr = addr.split(":");
+        final String host = arr[0];
+        final InetAddress[] addresses = InetAddress.getAllByName(host);
+        if (addresses == null || addresses.length == 0) {
+            return "";
+        }
+        final String brokerIp = addresses[0].getHostAddress() + ":" + arr[1];
+        return brokerIp;
     }
 
     @Override
